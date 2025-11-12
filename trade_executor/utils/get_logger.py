@@ -22,8 +22,9 @@ def get_logger(name: str) -> logging.Logger:
         logger.setLevel(logging.INFO)
         handler = logging.StreamHandler(sys.stdout)
         handler.setLevel(logging.INFO)
+        # Убираем levelname из формата — Railway красит INFO в красный
         formatter = logging.Formatter(
-            "%(asctime)s,%(msecs)03d | %(levelname)s | %(name)s | %(message)s",
+            "%(asctime)s,%(msecs)03d | %(name)s | %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S"
         )
         handler.setFormatter(formatter)
