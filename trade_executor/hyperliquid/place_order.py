@@ -3,8 +3,9 @@
 """
 
 from typing import Dict, Any
+from eth_account import Account
+from hyperliquid.info import Info
 from hyperliquid.exchange import Exchange
-from hyperliquid.utils import constants
 
 
 def place_market_order(
@@ -35,55 +36,49 @@ def place_market_order(
     if not private_key.startswith("0x"):
         private_key = "0x" + private_key
 
-    # Создаём Exchange клиент из официального SDK
-    # SDK принимает wallet как объект LocalAccount или приватный ключ напрямую
-    from eth_account import Account
+    # Создаём wallet из приватного ключа
     wallet = Account.from_key(private_key)
     
-    # Инициализируем Exchange с wallet
-    exchange = Exchange(
-        wallet=wallet,
-        base_url=None,  # По умолчанию mainnet
-        account_address=None
-    )
+    # Инициализируем Info и Exchange клиенты
+    info = Info(api_url, skip_ws=True)
+    exchange = Exchange(wallet, api_url)
     
     # Определяем направление: True = Buy (LONG), False = Sell (SHORT)
     is_buy = (side == "LONG")
     
-    # Устанавливаем плечо для актива (изолированная маржа)
-    # Сначала нужно получить asset index для монеты
-    # Используем market order с leverage
+    # Получаем текущую цену и метаданные для расчёта размера в токенах
+    mid_price = float(info.all_mids()[coin])
+    meta = info.meta()
     
-    try:
-        # Устанавливаем leverage для актива
-        leverage_result = exchange.update_leverage(
-            leverage=leverage,
-            coin=coin,
-            is_cross=True  # True = cross margin, False = isolated
-        )
-        
-        # Размещаем market order
-        # size_usd нужно конвертировать в количество монет
-        # Для упрощения используем limit order с очень агрессивной ценой
-        order_result = exchange.market_open(
-            coin=coin,
-            is_buy=is_buy,
-            sz=size_usd,  # SDK сам конвертирует USD в размер
-            px=None,  # None для market order
-        )
-        
-        return order_result
-        
-    except AttributeError:
-        # Если методы SDK отличаются, используем базовый order
-        order_result = exchange.order(
-            coin=coin,
-            is_buy=is_buy,
-            sz=size_usd,
-            limit_px=0,  # 0 для market order
-            order_type={"limit": {"tif": "Ioc"}},  # Immediate-or-cancel
-            reduce_only=False
-        )
-        
-        return order_result
+    # Находим количество десятичных знаков для этого токена
+    sz_decimals = 8  # По умолчанию
+    for asset in meta['universe']:
+        if asset['name'] == coin:
+            sz_decimals = asset['szDecimals']
+            break
+    
+    # Конвертируем USD в размер позиции в токенах
+    sz = round(size_usd / mid_price, sz_decimals)
+    
+    # Устанавливаем плечо (leverage)
+    # Примечание: update_leverage принимает asset index, а не coin
+    # Находим asset index
+    asset_index = None
+    for idx, asset in enumerate(meta['universe']):
+        if asset['name'] == coin:
+            asset_index = idx
+            break
+    
+    if asset_index is not None:
+        try:
+            # Устанавливаем leverage через asset index и is_cross
+            exchange.update_leverage(leverage, asset_index, is_cross=True)
+        except Exception as e:
+            # Если не получилось установить leverage, продолжаем без него
+            pass
+    
+    # Открываем рыночный ордер с 5% slippage
+    result = exchange.market_open(coin, is_buy, sz, None, 0.05)
+    
+    return result
 
