@@ -20,7 +20,23 @@ def calculate_position_size_usd(
         Размер позиции в USDC.
     """
     margin_summary = account_state.get("marginSummary", {})
-    account_value = float(margin_summary.get("accountValue", 0))
+    
+    # Пробуем получить accountValue из разных мест
+    account_value_str = margin_summary.get("accountValue", "0")
+    
+    # Hyperliquid иногда возвращает строки вместо чисел
+    try:
+        account_value = float(account_value_str)
+    except (ValueError, TypeError):
+        account_value = 0.0
+    
+    # Если accountValue = 0, пробуем взять из withdrawable или другого поля
+    if account_value <= 0:
+        withdrawable = account_state.get("withdrawable", "0")
+        try:
+            account_value = float(withdrawable)
+        except (ValueError, TypeError):
+            pass
 
     if account_value <= 0:
         return 0.0

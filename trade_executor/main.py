@@ -52,8 +52,13 @@ def _process_new_position(
 
     # Рассчитываем размер позиции
     size_usd = calculate_position_size_usd(account_state, settings.position_size_percent)
+    
+    # Дебаг: показываем что получили из API
+    margin_summary = account_state.get("marginSummary", {})
+    logger.info(f"  Баланс аккаунта: accountValue={margin_summary.get('accountValue')}, withdrawable={account_state.get('withdrawable')}")
+    
     if size_usd <= 0:
-        logger.warning(f"  Недостаточно средств для открытия позиции {coin} {side}.")
+        logger.warning(f"  Недостаточно средств для открытия позиции {coin} {side}. Рассчитанный размер: ${size_usd}")
         return False
 
     logger.info(f"  Размер позиции: ${size_usd:.2f} ({settings.position_size_percent}% от баланса)")
