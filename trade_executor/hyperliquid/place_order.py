@@ -36,16 +36,16 @@ def place_market_order(
         private_key = "0x" + private_key
 
     # Создаём Exchange клиент из официального SDK
-    # base_url можно настроить, но по умолчанию используется mainnet
-    # Для testnet: base_url=constants.TESTNET_API_URL
-    exchange = Exchange(
-        wallet=None,  # SDK сам создаст wallet из private_key
-        base_url=None if "hyperliquid.xyz" in api_url else api_url,
-        account_address=None  # SDK определит из ключа
-    )
+    # SDK принимает wallet как объект LocalAccount или приватный ключ напрямую
+    from eth_account import Account
+    wallet = Account.from_key(private_key)
     
-    # Устанавливаем приватный ключ
-    exchange.wallet = exchange._wallet_from_secret_key(private_key)
+    # Инициализируем Exchange с wallet
+    exchange = Exchange(
+        wallet=wallet,
+        base_url=None,  # По умолчанию mainnet
+        account_address=None
+    )
     
     # Определяем направление: True = Buy (LONG), False = Sell (SHORT)
     is_buy = (side == "LONG")
