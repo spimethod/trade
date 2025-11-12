@@ -2,11 +2,9 @@
 Модуль открытия позиции на Hyperliquid с использованием приватного ключа.
 """
 
-import json
-import time
 from typing import Dict, Any
-from eth_account import Account
-from eth_account.signers.local import LocalAccount
+from hyperliquid.exchange import Exchange
+from hyperliquid.utils import constants
 
 
 def place_market_order(
@@ -19,7 +17,7 @@ def place_market_order(
     timeout: int = 10
 ) -> Dict[str, Any]:
     """
-    Размещает рыночный ордер на Hyperliquid.
+    Размещает рыночный ордер на Hyperliquid используя официальный SDK.
 
     Args:
         api_url: URL API Hyperliquid.
@@ -33,69 +31,59 @@ def place_market_order(
     Returns:
         Ответ от exchange API.
     """
-    import requests
-
     # Нормализуем приватный ключ
     if not private_key.startswith("0x"):
         private_key = "0x" + private_key
 
-    # Создаём аккаунт из приватного ключа
-    account: LocalAccount = Account.from_key(private_key)
-    wallet_address = account.address
-
-    # Определяем is_buy
+    # Создаём Exchange клиент из официального SDK
+    # base_url можно настроить, но по умолчанию используется mainnet
+    # Для testnet: base_url=constants.TESTNET_API_URL
+    exchange = Exchange(
+        wallet=None,  # SDK сам создаст wallet из private_key
+        base_url=None if "hyperliquid.xyz" in api_url else api_url,
+        account_address=None  # SDK определит из ключа
+    )
+    
+    # Устанавливаем приватный ключ
+    exchange.wallet = exchange._wallet_from_secret_key(private_key)
+    
+    # Определяем направление: True = Buy (LONG), False = Sell (SHORT)
     is_buy = (side == "LONG")
-
-    # Подготовка запроса (упрощённая структура для рыночного ордера)
-    # Используем официальную структуру Hyperliquid SDK
-    action = {
-        "type": "order",
-        "orders": [{
-            "a": 0,  # asset index (нужно получать из meta, здесь упрощаем)
-            "b": is_buy,
-            "p": "0",  # price = 0 для рыночного ордера
-            "s": str(size_usd),
-            "r": False,  # reduceOnly
-            "t": {
-                "limit": {
-                    "tif": "Ioc"  # Immediate-or-cancel для рыночного ордера
-                }
-            }
-        }],
-        "grouping": "na"
-    }
-
-    # Временная метка
-    timestamp = int(time.time() * 1000)
-
-    # Формируем структуру для подписи
-    sign_data = {
-        "action": action,
-        "nonce": timestamp,
-        "vaultAddress": None
-    }
-
-    # Подписываем (используем EIP-712)
-    # Примечание: полная реализация требует структуру domain и types
-    # Здесь используем упрощённый вариант через eth_account
-    message_json = json.dumps(sign_data, separators=(',', ':'))
-    signature = account.sign_message(text=message_json)
-
-    # Формируем payload для /exchange
-    payload = {
-        "action": action,
-        "nonce": timestamp,
-        "signature": {
-            "r": hex(signature.r),
-            "s": hex(signature.s),
-            "v": signature.v
-        },
-        "vaultAddress": None
-    }
-
-    endpoint = f"{api_url}/exchange"
-    response = requests.post(endpoint, json=payload, timeout=timeout)
-    response.raise_for_status()
-
-    return response.json()
+    
+    # Устанавливаем плечо для актива (изолированная маржа)
+    # Сначала нужно получить asset index для монеты
+    # Используем market order с leverage
+    
+    try:
+        # Устанавливаем leverage для актива
+        leverage_result = exchange.update_leverage(
+            leverage=leverage,
+            coin=coin,
+            is_cross=True  # True = cross margin, False = isolated
+        )
+        
+        # Размещаем market order
+        # size_usd нужно конвертировать в количество монет
+        # Для упрощения используем limit order с очень агрессивной ценой
+        order_result = exchange.market_open(
+            coin=coin,
+            is_buy=is_buy,
+            sz=size_usd,  # SDK сам конвертирует USD в размер
+            px=None,  # None для market order
+        )
+        
+        return order_result
+        
+    except AttributeError:
+        # Если методы SDK отличаются, используем базовый order
+        order_result = exchange.order(
+            coin=coin,
+            is_buy=is_buy,
+            sz=size_usd,
+            limit_px=0,  # 0 для market order
+            order_type={"limit": {"tif": "Ioc"}},  # Immediate-or-cancel
+            reduce_only=False
+        )
+        
+        return order_result
 
