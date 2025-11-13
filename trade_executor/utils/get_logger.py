@@ -17,6 +17,9 @@ def get_logger(name: str) -> logging.Logger:
         Настроенный logger.
     """
     logger = logging.getLogger(name)
+    
+    # Отключаем propagate, чтобы избежать дублирования с root logger
+    logger.propagate = False
 
     if not logger.handlers:
         logger.setLevel(logging.INFO)
